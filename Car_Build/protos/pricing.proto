@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package pricing;
+
+import "common.proto";
+
+message Item {
+    common.Peca peca = 1;
+    int32 quantidade = 2;
+}
+
+message Preco {
+    double preco = 1;
+    double frete = 2;
+}
+
+message OrcamentoRequest {
+    repeated Item itens = 1;
+}
+
+service OrcamentoService {
+    // Unario
+    rpc Calcular (OrcamentoRequest) returns (Preco);
+}
