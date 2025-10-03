@@ -41,3 +41,5 @@ service OrcamentoService {
 5) comparacoes de velocidade , sla como faz
 
 6) tem de fazer slides
+
+7) Fazer item B.1 do PDF do professor https://github.com/chelseafarley/PythonGrpc 
