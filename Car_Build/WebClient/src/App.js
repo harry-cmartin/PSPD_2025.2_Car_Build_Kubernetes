@@ -31,7 +31,7 @@ function App() {
     try {
       console.log("Enviando requisição para P-Api:", car);
 
-      const response = await axios.post("http://127.0.0.1:57153/get-pecas", {
+      const response = await axios.post("http://127.0.0.1:8000/get-pecas", {
         modelo: car.modelo,
         ano: car.ano,
       });
@@ -90,7 +90,7 @@ function App() {
 
         console.log("Calculando preço para itens:", itens);
 
-        const response = await axios.post("http://127.0.0.1:57153/calcular", {
+        const response = await axios.post("http://127.0.0.1:8000/calcular", {
           itens: itens,
         });
 
@@ -345,7 +345,7 @@ function App() {
                 <div className="error">
                   <p>{error}</p>
                   <small>
-                    Verifique se o P-Api está rodando em http://127.0.0.1:57153
+                    Verifique se o P-Api está rodando em http://127.0.0.1:8000
                   </small>
                 </div>
               )}
