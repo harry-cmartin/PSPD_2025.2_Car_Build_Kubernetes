@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from "react";
+import axios from "axios";
 
-// Mock de carros - mesmos dados do microserviço A
+// Mock de carros
 const mockCarros = [
-  { "modelo": "fusca", "ano": 2014 },
-  { "modelo": "civic", "ano": 2023 },
-  { "modelo": "corolla", "ano": 2020 }
+  { modelo: "fusca", ano: 2014 },
+  { modelo: "civic", ano: 2023 },
+  { modelo: "corolla", ano: 2020 },
 ];
 
 function App() {
@@ -27,21 +27,22 @@ function App() {
     setPricing(null);
     setLoading(true);
     setError(null);
-    
+
     try {
-      console.log('Enviando requisição para P-Api:', car);
-      
-      const response = await axios.post('http://localhost:8000/get-pecas', {
+      console.log("Enviando requisição para P-Api:", car);
+
+      const response = await axios.post("http://127.0.0.1:57153/get-pecas", {
         modelo: car.modelo,
-        ano: car.ano
+        ano: car.ano,
       });
-      
-      console.log('Resposta recebida:', response.data);
+
+      console.log("Resposta recebida:", response.data);
       setParts(response.data.pecas || []);
-      
     } catch (err) {
-      console.error('Erro ao buscar peças:', err);
-      setError(`Erro ao buscar peças: ${err.response?.data?.detail || err.message}`);
+      console.error("Erro ao buscar peças:", err);
+      setError(
+        `Erro ao buscar peças: ${err.response?.data?.detail || err.message}`
+      );
       setParts([]);
     } finally {
       setLoading(false);
@@ -50,13 +51,13 @@ function App() {
 
   const handlePartQuantityChange = (partId, quantity) => {
     const newSelectedParts = { ...selectedParts };
-    
+
     if (quantity > 0) {
       newSelectedParts[partId] = quantity;
     } else {
       delete newSelectedParts[partId];
     }
-    
+
     setSelectedParts(newSelectedParts);
   };
 
@@ -64,7 +65,7 @@ function App() {
   useEffect(() => {
     const calculatePricing = async () => {
       const selectedPartsList = Object.entries(selectedParts);
-      
+
       if (selectedPartsList.length === 0) {
         setPricing(null);
         setPricingError(null);
@@ -73,32 +74,30 @@ function App() {
 
       setPricingLoading(true);
       setPricingError(null);
-      
+
       try {
-        
         const itens = selectedPartsList.map(([partId, quantidade]) => {
-          const part = parts.find(p => p.id === partId);
+          const part = parts.find((p) => p.id === partId);
           return {
             peca: {
               id: part.id,
               nome: part.nome,
-              valor: part.valor
+              valor: part.valor,
             },
-            quantidade: quantidade
+            quantidade: quantidade,
           };
         });
-        
-        console.log('Calculando preço para itens:', itens);
-        
-        const response = await axios.post('http://localhost:8000/calcular', {
-          itens: itens
+
+        console.log("Calculando preço para itens:", itens);
+
+        const response = await axios.post("http://127.0.0.1:57153/calcular", {
+          itens: itens,
         });
-        
-        console.log('Preço calculado:', response.data);
+
+        console.log("Preço calculado:", response.data);
         setPricing(response.data);
-        
       } catch (err) {
-        console.error('Erro ao calcular preço:', err);
+        console.error("Erro ao calcular preço:", err);
         setPricingError(err.response?.data?.detail || err.message);
         setPricing(null);
       } finally {
@@ -106,15 +105,14 @@ function App() {
       }
     };
 
-  
     const timeoutId = setTimeout(calculatePricing, 500);
-    
+
     return () => clearTimeout(timeoutId);
   }, [selectedParts, parts]);
 
   const getMaxQuantity = (part) => {
     // Regra: somente 1 chassi
-    if (part.nome.toLowerCase().includes('chassi')) {
+    if (part.nome.toLowerCase().includes("chassi")) {
       return 1;
     }
     // Outras peças: máximo 5
@@ -237,7 +235,7 @@ function App() {
       <header className="header">
         <h1>🚗 Catálogo de Peças Automotivas</h1>
         {getTotalItems() > 0 && (
-          <div style={{ fontSize: '0.9rem', opacity: 0.9 }}>
+          <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>
             {getTotalItems()} item(s) selecionado(s)
           </div>
         )}
@@ -251,7 +249,9 @@ function App() {
             {mockCarros.map((car, index) => (
               <div
                 key={index}
-                className={`car-card ${selectedCar?.modelo === car.modelo ? 'selected' : ''}`}
+                className={`car-card ${
+                  selectedCar?.modelo === car.modelo ? "selected" : ""
+                }`}
                 onClick={() => handleCarSelect(car)}
               >
                 <h3>{car.modelo}</h3>
@@ -320,7 +320,9 @@ function App() {
         {/* Conteúdo Principal */}
         <main className="content">
           {!selectedCar && (
-            <div style={{ textAlign: 'center', padding: '3rem', color: '#666' }}>
+            <div
+              style={{ textAlign: "center", padding: "3rem", color: "#666" }}
+            >
               <h2>👈 Selecione um carro na barra lateral</h2>
               <p>Escolha um modelo para ver as peças disponíveis</p>
             </div>
@@ -328,8 +330,11 @@ function App() {
 
           {selectedCar && (
             <div>
-              <h1>Peças para {selectedCar.modelo.toUpperCase()} ({selectedCar.ano})</h1>
-              
+              <h1>
+                Peças para {selectedCar.modelo.toUpperCase()} ({selectedCar.ano}
+                )
+              </h1>
+
               {loading && (
                 <div className="loading">
                   <p>🔄 Carregando peças...</p>
@@ -339,46 +344,60 @@ function App() {
               {error && (
                 <div className="error">
                   <p>{error}</p>
-                  <small>Verifique se o P-Api está rodando em http://localhost:8000</small>
+                  <small>
+                    Verifique se o P-Api está rodando em http://127.0.0.1:57153
+                  </small>
                 </div>
               )}
 
               {!loading && !error && parts.length > 0 && (
                 <div className="parts-list">
                   <h2>Peças Disponíveis ({parts.length})</h2>
-                  <p style={{ color: '#666', marginBottom: '1rem' }}>
-                    Selecione as peças e quantidades desejadas. O preço será calculado em tempo real.
+                  <p style={{ color: "#666", marginBottom: "1rem" }}>
+                    Selecione as peças e quantidades desejadas. O preço será
+                    calculado em tempo real.
                   </p>
-                  
+
                   <div className="parts-grid">
                     {parts.map((part) => {
                       const maxQty = getMaxQuantity(part);
                       const currentQty = selectedParts[part.id] || 0;
-                      
+
                       return (
                         <div key={part.id} className="part-card interactive">
                           <h4>{part.nome}</h4>
                           <div className="price">
-                            R$ {part.valor.toLocaleString('pt-BR', { 
-                              minimumFractionDigits: 2, 
-                              maximumFractionDigits: 2 
+                            R${" "}
+                            {part.valor.toLocaleString("pt-BR", {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
                             })}
                           </div>
                           <div className="id">ID: {part.id}</div>
-                          
+
                           <div className="quantity-controls">
                             <label>Quantidade:</label>
                             <div className="quantity-input">
-                              <button 
-                                onClick={() => handlePartQuantityChange(part.id, Math.max(0, currentQty - 1))}
+                              <button
+                                onClick={() =>
+                                  handlePartQuantityChange(
+                                    part.id,
+                                    Math.max(0, currentQty - 1)
+                                  )
+                                }
                                 disabled={currentQty <= 0}
                                 className="qty-btn"
                               >
                                 -
                               </button>
                               <span className="qty-display">{currentQty}</span>
-                              <button 
-                                onClick={() => handlePartQuantityChange(part.id, Math.min(maxQty, currentQty + 1))}
+                              <button
+                                onClick={() =>
+                                  handlePartQuantityChange(
+                                    part.id,
+                                    Math.min(maxQty, currentQty + 1)
+                                  )
+                                }
                                 disabled={currentQty >= maxQty}
                                 className="qty-btn"
                               >
@@ -386,15 +405,21 @@ function App() {
                               </button>
                             </div>
                             {maxQty === 1 && (
-                              <small style={{ color: '#999', fontSize: '0.8rem' }}>
+                              <small
+                                style={{ color: "#999", fontSize: "0.8rem" }}
+                              >
                                 Máximo: 1 unidade
                               </small>
                             )}
                             {currentQty > 0 && (
                               <div className="item-total">
-                                Subtotal: R$ {(part.valor * currentQty).toLocaleString('pt-BR', { 
-                                  minimumFractionDigits: 2 
-                                })}
+                                Subtotal: R${" "}
+                                {(part.valor * currentQty).toLocaleString(
+                                  "pt-BR",
+                                  {
+                                    minimumFractionDigits: 2,
+                                  }
+                                )}
                               </div>
                             )}
                           </div>
@@ -406,7 +431,13 @@ function App() {
               )}
 
               {!loading && !error && parts.length === 0 && selectedCar && (
-                <div style={{ textAlign: 'center', padding: '2rem', color: '#666' }}>
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "2rem",
+                    color: "#666",
+                  }}
+                >
                   <p>Nenhuma peça encontrada para este modelo.</p>
                 </div>
               )}

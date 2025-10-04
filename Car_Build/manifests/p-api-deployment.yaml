@@ -1,0 +1,26 @@
+# p-api-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: p-api-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: p-api
+  template:
+    metadata:
+      labels:
+        app: p-api
+    spec:
+      containers:
+      - name: p-api-container
+        image: car_build-p-api:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: SERVER_A_HOST
+          value: "server-a-service" # Aponta para o Service do server-a
+        - name: SERVER_B_HOST
+          value: "server-b-service" # Aponta para o Service do server-b
