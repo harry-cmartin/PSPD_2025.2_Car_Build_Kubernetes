@@ -39,13 +39,25 @@ class OrcamentoServiceStub(object):
                 request_serializer=pricing__pb2.OrcamentoRequest.SerializeToString,
                 response_deserializer=pricing__pb2.Preco.FromString,
                 _registered_method=True)
+        self.RealizarCompra = channel.unary_unary(
+                '/pricing.OrcamentoService/RealizarCompra',
+                request_serializer=pricing__pb2.CompraRequest.SerializeToString,
+                response_deserializer=pricing__pb2.CompraResponse.FromString,
+                _registered_method=True)
 
 
 class OrcamentoServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def Calcular(self, request, context):
-        """Unary
+        """Unario
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RealizarCompra(self, request, context):
+        """Novo método para finalizar compra
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -58,6 +70,11 @@ def add_OrcamentoServiceServicer_to_server(servicer, server):
                     servicer.Calcular,
                     request_deserializer=pricing__pb2.OrcamentoRequest.FromString,
                     response_serializer=pricing__pb2.Preco.SerializeToString,
+            ),
+            'RealizarCompra': grpc.unary_unary_rpc_method_handler(
+                    servicer.RealizarCompra,
+                    request_deserializer=pricing__pb2.CompraRequest.FromString,
+                    response_serializer=pricing__pb2.CompraResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -87,6 +104,33 @@ class OrcamentoService(object):
             '/pricing.OrcamentoService/Calcular',
             pricing__pb2.OrcamentoRequest.SerializeToString,
             pricing__pb2.Preco.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RealizarCompra(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/pricing.OrcamentoService/RealizarCompra',
+            pricing__pb2.CompraRequest.SerializeToString,
+            pricing__pb2.CompraResponse.FromString,
             options,
             channel_credentials,
             insecure,
