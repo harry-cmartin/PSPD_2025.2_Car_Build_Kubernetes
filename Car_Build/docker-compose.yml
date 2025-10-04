@@ -1,6 +1,27 @@
-version: '3.8'
+version: "3.8"
 
 services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: car-build-postgres
+    environment:
+      POSTGRES_DB: car_build_db
+      POSTGRES_USER: car_build_user
+      POSTGRES_PASSWORD: car_build_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - car-build-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U car_build_user -d car_build_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Microserviço A - Catálogo (gRPC)
   server-a:
     build:
@@ -11,13 +32,28 @@ services:
       - "50051:50051"
     networks:
       - car-build-network
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=car_build_db
+      - DB_USER=car_build_user
+      - DB_PASSWORD=car_build_password
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50051', grpc.credentials.createInsecure()); client.close();"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50051', grpc.credentials.createInsecure()); client.close();",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  # Microserviço B - Pricing (gRPC)  
+  # Microserviço B - Pricing (gRPC)
   server-b:
     build:
       context: .
@@ -28,7 +64,13 @@ services:
     networks:
       - car-build-network
     healthcheck:
-      test: ["CMD", "node", "-e", "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50052', grpc.credentials.createInsecure()); client.close();"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50052', grpc.credentials.createInsecure()); client.close();",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -56,6 +98,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+volumes:
+  postgres_data:
 
 networks:
   car-build-network:
