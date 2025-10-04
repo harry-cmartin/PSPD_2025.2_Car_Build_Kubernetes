@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from google.protobuf import json_format
 import grpc
+import os
 import generated.catalogo_pb2 as catalogo_pb2
 import generated.catalogo_pb2_grpc as catalogo_pb2_grpc
 import generated.pricing_pb2 as pricing_pb2
@@ -19,8 +20,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-stub_a = catalogo_pb2_grpc.CatalogoServiceStub(grpc.insecure_channel("localhost:50051"))
-stub_b = pricing_pb2_grpc.OrcamentoServiceStub(grpc.insecure_channel("localhost:50052"))
+# Usar variáveis de ambiente para hostnames dos containers
+SERVER_A_HOST = os.getenv("SERVER_A_HOST", "localhost")
+SERVER_B_HOST = os.getenv("SERVER_B_HOST", "localhost")
+
+stub_a = catalogo_pb2_grpc.CatalogoServiceStub(grpc.insecure_channel(f"{SERVER_A_HOST}:50051"))
+stub_b = pricing_pb2_grpc.OrcamentoServiceStub(grpc.insecure_channel(f"{SERVER_B_HOST}:50052"))
 
 @app.post("/get-pecas")
 def get_pecas(body: dict):

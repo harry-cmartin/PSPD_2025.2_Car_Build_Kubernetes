@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Microserviço A - Catálogo (gRPC)
+  server-a:
+    build:
+      context: .
+      dockerfile: ./Microservices/serverA-microsservice/Dockerfile
+    container_name: car-build-server-a
+    ports:
+      - "50051:50051"
+    networks:
+      - car-build-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50051', grpc.credentials.createInsecure()); client.close();"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Microserviço B - Pricing (gRPC)  
+  server-b:
+    build:
+      context: .
+      dockerfile: ./Microservices/serverB-microsservice/Dockerfile
+    container_name: car-build-server-b
+    ports:
+      - "50052:50052"
+    networks:
+      - car-build-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "const grpc = require('@grpc/grpc-js'); const client = new grpc.Client('localhost:50052', grpc.credentials.createInsecure()); client.close();"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # API Gateway - FastAPI
+  p-api:
+    build:
+      context: ./P-Api
+      dockerfile: ./Dockerfile
+    container_name: car-build-p-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      server-a:
+        condition: service_healthy
+      server-b:
+        condition: service_healthy
+    networks:
+      - car-build-network
+    environment:
+      - SERVER_A_HOST=server-a
+      - SERVER_B_HOST=server-b
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  car-build-network:
+    driver: bridge
