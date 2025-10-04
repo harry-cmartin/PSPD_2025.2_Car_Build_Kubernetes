@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from google.protobuf import json_format
 import grpc
@@ -43,9 +43,28 @@ def calcular(body: dict):
    return json_format.MessageToDict(resp)
 
 
-# @app.post("/pagar")
-# def pagar(body: dict):
-#  req = pricing_pb2.OrcamentoRequest()
- #  json_format.ParseDict(body, req)
-  # resp = stub_b.Calcular(req)
-   # return json_format.MessageToDict(resp)
+@app.post("/pagar")
+def pagar(body: dict):
+    try:
+        print(f"[P-API] Recebida requisição de compra: {body}")
+        
+        # Criar request de compra
+        req = pricing_pb2.CompraRequest()
+        json_format.ParseDict(body, req)
+        
+        # Chamar Server B para processar compra
+        resp = stub_b.RealizarCompra(req)
+        
+        # Converter resposta para dict
+        result = json_format.MessageToDict(resp)
+        
+        print(f"[P-API] Compra processada com sucesso. Pedido ID: {result.get('pedidoId', 'N/A')}")
+        
+        return result
+        
+    except grpc.RpcError as e:
+        print(f"[P-API] Erro gRPC ao processar compra: {e.details()}")
+        raise HTTPException(status_code=400, detail=f"Erro ao processar compra: {e.details()}")
+    except Exception as e:
+        print(f"[P-API] Erro interno ao processar compra: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")

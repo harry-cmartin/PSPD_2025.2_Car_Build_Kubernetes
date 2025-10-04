@@ -17,6 +17,9 @@ function App() {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [error, setError] = useState(null);
   const [pricingError, setPricingError] = useState(null);
+  const [purchaseResult, setPurchaseResult] = useState(null);
+  const [showPurchasePage, setShowPurchasePage] = useState(false);
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
 
   const handleCarSelect = async (car) => {
     setSelectedCar(car);
@@ -122,6 +125,112 @@ function App() {
     return Object.values(selectedParts).reduce((sum, qty) => sum + qty, 0);
   };
 
+  const handlePurchase = async () => {
+    if (!pricing || getTotalItems() === 0) return;
+    
+    setPurchaseLoading(true);
+    
+    try {
+      const itens = Object.entries(selectedParts).map(([partId, quantidade]) => {
+        const part = parts.find(p => p.id === partId);
+        return {
+          peca: {
+            id: part.id,
+            nome: part.nome,
+            valor: part.valor
+          },
+          quantidade: quantidade
+        };
+      });
+      
+      const valorTotal = (pricing.preco || 0) + (pricing.frete || 0);
+      
+      console.log('Enviando requisição de compra:', { itens, valor_total: valorTotal });
+      
+      const response = await axios.post('http://localhost:8000/pagar', {
+        itens: itens,
+        valor_total: valorTotal
+      });
+      
+      console.log('Compra realizada com sucesso:', response.data);
+      setPurchaseResult(response.data);
+      setShowPurchasePage(true);
+      
+    } catch (error) {
+      console.error('Erro ao finalizar compra:', error);
+      alert(`Erro ao finalizar compra: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setPurchaseLoading(false);
+    }
+  };
+
+  const handleBackToShopping = () => {
+    setShowPurchasePage(false);
+    setPurchaseResult(null);
+    setSelectedParts({});
+    setPricing(null);
+    setSelectedCar(null);
+  };
+
+  // Componente de confirmação de compra
+  const PurchaseConfirmation = () => (
+    <div className="purchase-confirmation">
+      <header className="header">
+        <h1>✅ Compra Realizada com Sucesso!</h1>
+      </header>
+      
+      <div className="main-content">
+        <div className="purchase-details">
+          <div className="order-summary">
+            <h2>Pedido: {purchaseResult.pedidoId || purchaseResult.pedido_id}</h2>
+            <div className="order-info">
+              <p><strong>Status:</strong> {purchaseResult.status}</p>
+              <p><strong>Data:</strong> {new Date(purchaseResult.dataPedido || purchaseResult.data_pedido).toLocaleString('pt-BR')}</p>
+            </div>
+            
+            <div className="pricing-breakdown">
+              <h3>💰 Resumo Financeiro</h3>
+              <div className="pricing-line">
+                <span>Subtotal:</span>
+                <span>R$ {(purchaseResult.subtotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="pricing-line">
+                <span>Frete:</span>
+                <span>R$ {(purchaseResult.frete || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div className="pricing-total">
+                <span>Total Pago:</span>
+                <span>R$ {(purchaseResult.valorTotal || purchaseResult.valor_total || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+            
+            <div className="items-purchased">
+              <h3>📦 Itens Comprados</h3>
+              {(purchaseResult.itensComprados || purchaseResult.itens_comprados || []).map((item, index) => (
+                <div key={index} className="purchased-item">
+                  <span className="item-qty">{item.quantidade}x</span>
+                  <span className="item-name">{item.peca.nome}</span>
+                  <span className="item-price">R$ {(item.peca.valor * item.quantidade).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+              ))}
+            </div>
+            
+            <button 
+              className="back-button"
+              onClick={handleBackToShopping}
+            >
+              🛒 Nova Compra
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (showPurchasePage && purchaseResult) {
+    return <PurchaseConfirmation />;
+  }
+
   return (
     <div className="app">
       {/* Header Verde */}
@@ -158,13 +267,40 @@ function App() {
               <div className="pricing-details">
                 <div className="pricing-line">
                   <span>Subtotal:</span>
-                  <span>R$ {pricing.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  <span>R$ {(pricing.preco || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="pricing-line">
+                  <span>Frete:</span>
+                  <span>R$ {(pricing.frete || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
                 <div className="pricing-total">
                   <span>Total:</span>
-                  <span>R$ {(pricing.preco ).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                  <span>R$ {((pricing.preco || 0) + (pricing.frete || 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                 </div>
               </div>
+              
+              {getTotalItems() > 0 && (
+                <button 
+                  className="purchase-button"
+                  onClick={handlePurchase}
+                  disabled={purchaseLoading}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    marginTop: '15px',
+                    backgroundColor: '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '16px',
+                    fontWeight: 'bold',
+                    cursor: purchaseLoading ? 'not-allowed' : 'pointer',
+                    opacity: purchaseLoading ? 0.7 : 1
+                  }}
+                >
+                  {purchaseLoading ? '🔄 Processando...' : '🛒 Finalizar Compra'}
+                </button>
+              )}
             </div>
           )}
 
