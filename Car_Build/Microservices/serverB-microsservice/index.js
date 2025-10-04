@@ -3,8 +3,8 @@ const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 
 const packageDef = protoLoader.loadSync(
-  '../../protos/pricing.proto',
-  { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true, includeDirs: ['../../protos'] }
+  'protos/pricing.proto',
+  { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true, includeDirs: ['protos'] }
 );
 const proto = grpc.loadPackageDefinition(packageDef).pricing;
 

@@ -3,8 +3,8 @@ const grpc = require('@grpc/grpc-js');
 const protoLoader = require('@grpc/proto-loader');
 
 const packageDef = protoLoader.loadSync(
-  '../../protos/catalogo.proto',
-  { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true, includeDirs: ['../../protos'] }
+  'protos/catalogo.proto',
+  { keepCase: true, longs: String, enums: String, defaults: true, oneofs: true, includeDirs: ['protos'] }
 );
 const proto = grpc.loadPackageDefinition(packageDef).catalogo;
 
@@ -70,5 +70,4 @@ server.bindAsync(serverAddress, grpc.ServerCredentials.createInsecure(), (err, p
   console.log(`[SERVER A] Microserviço A (Catálogo) rodando em ${serverAddress}`);
   server.start();
 });
-
 
