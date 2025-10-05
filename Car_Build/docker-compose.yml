@@ -27,7 +27,7 @@ services:
     build:
       context: .
       dockerfile: ./Microservices/serverA-microsservice/Dockerfile
-    container_name: car-build-server-a
+    container_name: car_build-server-a
     ports:
       - "50051:50051"
     networks:
@@ -58,7 +58,7 @@ services:
     build:
       context: .
       dockerfile: ./Microservices/serverB-microsservice/Dockerfile
-    container_name: car-build-server-b
+    container_name: car_build-server-b
     ports:
       - "50052:50052"
     networks:
@@ -80,7 +80,7 @@ services:
     build:
       context: ./P-Api
       dockerfile: ./Dockerfile
-    container_name: car-build-p-api
+    container_name: car_build-p-api
     ports:
       - "8000:8000"
     depends_on:
