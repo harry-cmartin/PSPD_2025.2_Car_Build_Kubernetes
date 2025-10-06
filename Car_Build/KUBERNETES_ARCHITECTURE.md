@@ -245,3 +245,350 @@ Esta implementação atende perfeitamente aos requisitos:
 - **Rede Externa**: HTTP tradicional via NodePort
 - **Rede Interna**: HTTP/2 gRPC entre containers
 - **Persistência**: PostgreSQL com PVC
+
+---
+
+## **Seção Completa sobre Kubernetes - Arquitetura e Funcionalidades**
+
+### **1. Processo de Desenvolvimento e Migração para Kubernetes**
+
+#### **1.1 Etapa Inicial - Containerização com Docker**
+
+O desenvolvimento iniciou com a criação de **Dockerfiles individuais** para cada microserviço:
+
+- **Microserviço A (Catálogo)**: `./Microservices/serverA-microsservice/Dockerfile`
+- **Microserviço B (Pricing)**: `./Microservices/serverB-microsservice/Dockerfile`  
+- **API Gateway (P-API)**: `./P-Api/Dockerfile`
+
+Após a containerização individual, foi criado um **docker-compose.yml** para:
+- **Orquestrar todos os serviços** em uma única rede (`car-build-network`)
+- **Definir dependências** entre serviços (healthchecks)
+- **Gerenciar volumes** para persistência do PostgreSQL
+- **Testar a comunicação** entre containers antes da migração
+
+---
+
+### **2. Arquitetura Kubernetes Implementada**
+
+#### **2.1 Minikube**
+
+**Escolha Tecnológica**: Minikube foi selecionado por ser:
+- **Ambiente Local**: Ideal para desenvolvimento e testes
+- **Cluster Completo**: Simula um cluster Kubernetes real em nó único
+- **Facilidade de Uso**: Setup rápido sem configurações complexas
+
+#### **2.2 Componentes de Infraestrutura**
+
+##### **A) Persistent Volume Claims (PVC)**
+```yaml
+# postgres-pvc.yaml
+kind: PersistentVolumeClaim
+spec:
+  resources:
+    requests:
+      storage: 1Gi
+```
+
+**Justificativa de Uso**:
+- **Persistência de Dados**: Garante que dados PostgreSQL sobrevivam a reinicializações de pods
+- **Desacoplamento**: Separa o lifecycle do storage do lifecycle do container
+- **Portabilidade**: Permite migração entre nodes sem perda de dados
+
+##### **B) ConfigMaps**
+```yaml
+# postgres-configmap.yaml
+kind: ConfigMap
+data:
+  init.sql: |
+    CREATE TABLE carros...
+    CREATE TABLE pecas...
+```
+
+**Justificativa de Uso**:
+- **Separação de Configuração**: Remove scripts SQL do código da aplicação
+- **Versionamento**: Permite controle de versão das configurações
+- **Reutilização**: Configurações podem ser compartilhadas entre ambientes
+
+#### **2.3 Camada de Deployments**
+
+##### **A) PostgreSQL Deployment**
+```yaml
+# postgres-deployment.yaml
+kind: Deployment
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - image: postgres:15-alpine
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-script
+          mountPath: /docker-entrypoint-initdb.d
+```
+
+**Estratégia Adotada**:
+- **Imagem Oficial**: `postgres:15-alpine` para compatibilidade e segurança
+- **Volume Mounting**: PVC para dados + ConfigMap para inicialização
+- **Single Replica**: Para bancos estateful, uma réplica evita problemas de sincronização
+
+##### **B) Microserviços Deployments**
+```yaml
+# server-a-deployment.yaml / server-b-deployment.yaml
+kind: Deployment
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+      - image: car_build-server-a:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: DB_HOST
+          value: "postgres-service"
+```
+
+**Decisões de Design**:
+- **ImagePullPolicy: IfNotPresent**: Otimiza build local com minikube
+- **Variáveis de Ambiente**: Injeção de configuração via Kubernetes
+- **Service Discovery**: Uso de DNS interno (`postgres-service`)
+
+##### **C) API Gateway Deployment**
+```yaml
+# p-api-deployment.yaml
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+      - image: car_build-p-api:latest
+        env:
+        - name: SERVER_A_HOST
+          value: "server-a-service"
+        - name: SERVER_B_HOST
+          value: "server-b-service"
+```
+
+**Arquitetura Gateway Pattern**:
+- **Centralização**: Único ponto de entrada para requisições externas
+- **Conversão de Protocolo**: HTTP REST para gRPC internamente
+- **Service Mesh**: Comunicação com microserviços via DNS interno
+
+---
+
+### **3. Configuração de Rede e Services**
+
+#### **3.1 Services Internos (ClusterIP)**
+
+**Postgres Service**:
+```yaml
+# postgres-service.yaml
+kind: Service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+```
+
+**Microserviços Services**:
+```yaml
+# server-a-service.yaml / server-b-service.yaml  
+kind: Service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 50051/50052
+    targetPort: 50051/50052
+```
+
+**Justificativa ClusterIP**:
+- **Segurança**: Serviços não expostos externamente
+- **Performance**: Comunicação direta entre pods
+- **Service Discovery**: DNS automático (`service-name.namespace.svc.cluster.local`)
+
+#### **3.2 Service Externo (NodePort)**
+
+```yaml
+# p-api-service.yaml
+kind: Service
+spec:
+  type: NodePort
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30001
+```
+
+**Justificativa NodePort**:
+- **Acesso Externo**: Permite conexão do frontend React
+- **Desenvolvimento**: Ideal para ambiente local com minikube
+- **Túnel Minikube**: Integração com `minikube service` command
+
+---
+
+### **4. Comandos de Implementação e Dificuldades**
+
+#### **4.1 Sequência de Comandos Utilizados**
+
+```bash
+# 1. Preparação do Ambiente
+minikube start
+minikube dashboard  # Opcional - monitoramento visual
+
+# 2. Build e Load das Imagens Docker
+docker-compose up --build  # Gera imagens locais
+minikube image load car_build-p-api:latest
+minikube image load car_build-server-a:latest  
+minikube image load car_build-server-b:latest
+
+# 3. Deploy da Infraestrutura (ordem importante)
+cd manifests
+kubectl apply -f postgres-pvc.yaml          # Storage primeiro
+kubectl apply -f postgres-configmap.yaml    # Configurações
+kubectl apply -f postgres-deployment.yaml   # Database
+kubectl apply -f postgres-service.yaml      # DNS interno
+
+# 4. Deploy dos Microserviços
+kubectl apply -f server-a-deployment.yaml
+kubectl apply -f server-a-service.yaml
+kubectl apply -f server-b-deployment.yaml  
+kubectl apply -f server-b-service.yaml
+
+# 5. Deploy do API Gateway
+kubectl apply -f p-api-deployment.yaml
+kubectl apply -f p-api-service.yaml
+
+# 6. Verificação e Exposição
+kubectl get deployments
+kubectl get pods -w  # Aguardar todos ficarem Running
+minikube service p-api-service  # Criar túnel externo
+
+# 7. Frontend
+cd ../WebClient
+npm start
+```
+
+#### **4.2 Dificuldades Encontradas**
+
+##### **A) Gerenciamento de Imagens**
+**Problema**: Kubernetes não encontrava imagens Docker locais
+**Solução**: Uso do `minikube image load` para transferir imagens para o cluster interno
+**Lição**: Minikube possui registry interno separado do Docker local
+
+##### **B) Service Discovery e DNS**
+**Problema**: Microserviços não conseguiam se conectar usando hostnames do docker-compose
+**Solução**: Migração para DNS interno do Kubernetes (`service-name`)
+**Configuração**: Variáveis de ambiente apontando para services (`postgres-service`, `server-a-service`)
+
+##### **C) Dependências de Inicialização**
+**Problema**: Pods tentavam conectar no PostgreSQL antes dele estar pronto
+**Solução**: Uso de `kubectl get pods -w` para aguardar status `Running`
+**Melhoria**: Implementação de health checks nos Deployments
+
+##### **D) Persistência de Dados**
+**Problema**: Dados PostgreSQL eram perdidos a cada restart do pod
+**Solução**: Implementação de PersistentVolumeClaim
+**Configuração**: Volume mounting correto nos Deployments
+
+##### **E) Exposição Externa**
+**Problema**: Frontend não conseguia acessar API Gateway
+**Solução**: Service tipo NodePort + comando `minikube service`
+**Resultado**: Túnel automático entre localhost e cluster
+
+---
+
+### **5. Resultados Alcançados**
+
+#### **5.1 Arquitetura Final Funcional**
+
+**Infraestrutura Obtida**:
+- **Cluster Kubernetes** funcional com minikube
+- **4 Deployments** independentes e escaláveis
+- **5 Services** com DNS interno funcional
+- **Persistent Volume** para dados PostgreSQL
+- **ConfigMap** para scripts de inicialização
+- **Rede Externa** via NodePort funcional
+- **Comunicação gRPC** interna entre microserviços
+
+#### **5.2 Benefícios Obtidos vs Docker Compose**
+
+| Aspecto | Docker Compose | Kubernetes |
+|---------|---------------|------------|
+| **Escalabilidade** | Manual, limitada | Automática por deployment |
+| **Alta Disponibilidade** | Restart simples | Redistribuição automática |
+| **Service Discovery** | Hostnames fixos | DNS dinâmico |
+| **Monitoramento** | Logs básicos | Dashboard + métricas |
+| **Configuração** | Environment files | ConfigMaps + Secrets |
+| **Networking** | Bridge network | Service mesh |
+
+#### **5.3 Funcionalidades Implementadas**
+
+**Orquestração Completa**:
+- **Auto-restart** de containers com falhas
+- **Load balancing** interno entre réplicas
+- **Service discovery** automático via DNS
+- **Volume management** para persistência
+- **Configuration management** via ConfigMaps
+
+**Monitoramento e Observabilidade**:
+- Dashboard visual via `minikube dashboard`
+- Logs centralizados via `kubectl logs`
+- Status de health via `kubectl get pods`
+- Métricas de recursos via Kubernetes API
+
+#### **5.4 Validação da Arquitetura**
+
+**Testes de Integração Realizados**:
+```bash
+# 1. Conectividade Database
+kubectl exec -it deployment/postgres-deployment -- psql -U car_build_user -d car_build_db
+
+# 2. Comunicação gRPC Interna  
+kubectl logs -f deployment/p-api-deployment  # Verificar calls para server-a/b
+
+# 3. Acesso Externo
+curl http://$(minikube service p-api-service --url)/get-pecas
+```
+
+**Resultados dos Testes**:
+- PostgreSQL inicializado com dados
+- Server-A respondendo queries gRPC de catálogo
+- Server-B calculando preços via gRPC
+- P-API convertendo HTTP→gRPC corretamente
+- Frontend React consumindo APIs
+
+---
+
+### **6. Conclusões e Lições Aprendidas**
+
+#### **6.1 Vantagens da Migração**
+
+**Técnicas**:
+- **Isolamento**: Cada serviço em namespace próprio
+- **Escalabilidade**: Réplicas independentes por deployment  
+- **Resiliência**: Auto-recovery e redistribuição
+- **Flexibilidade**: Configuração declarativa via YAML
+
+**Operacionais**:
+- **Padronização**: Mesma interface para todos os ambientes
+- **Versionamento**: Controle de versão de toda infraestrutura
+- **Debugging**: Ferramentas avançadas de troubleshooting
+
+#### **6.2 Recomendações para Produção**
+
+**Melhorias Necessárias**:
+- Migrar de **NodePort** para **Ingress Controller**
+- Implementar **Horizontal Pod Autoscaler** (HPA)
+- Adicionar **Resource Limits** e **Requests**
+- Configurar **Secrets** para credenciais sensíveis
+- Implementar **Network Policies** para segurança
+- Adicionar **Persistent Volume** com backup automático
+
+**Monitoramento Avançado**:
+- Integração com **Prometheus** e **Grafana**
+- Implementação de **Jaeger** para tracing distribuído
+- Configuração de **Alertmanager** para notificações
+
+Esta implementação demonstra uma migração bem-sucedida de Docker Compose para Kubernetes, evidenciando as vantagens de orquestração, escalabilidade e gerenciamento de uma arquitetura de microserviços em ambiente cloud-native.
