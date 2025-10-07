@@ -374,6 +374,85 @@ O Microsserviço P atua como intermediário entre os clientes e os outros dois m
 ## Comparativo com REST/JSON
 Para avaliar o desempenho e a eficiência do gRPC em comparação com o modelo tradicional de comunicação REST/JSON, foi implementada uma versão alternativa do sistema utilizando apenas HTTP/REST. Nessa versão, o Microsserviço P se comunica com os Microsserviços A e B através de requisições HTTP/REST, enviando e recebendo dados no formato JSON.
 
+### Metodologia de Teste
+
+Para garantir uma comparação justa entre as duas tecnologias, foram desenvolvidos cenários de teste idênticos para ambas as versões da aplicação. Os testes foram executados sob as mesmas condições de infraestrutura e carga, medindo o tempo de resposta de três operações principais:
+
+1. **GetPeças**: Operação que consulta as peças disponíveis para um modelo de carro específico
+2. **Calcular**: Operação que calcula o preço total das peças selecionadas
+3. **Pagar**: Operação que processa o pagamento e finaliza a compra
+
+Cada operação foi executada 10 vezes consecutivas para ambas as versões (gRPC e REST/JSON), registrando o tempo de resposta em milissegundos. Os dados de tempo de resposta foram coletados através das ferramentas de desenvolvedor do navegador famigerado inspecionar, especificamente na aba Network, que permite monitorar e medir com precisão o tempo de resposta das requisições HTTP. Os testes foram realizados em ambiente controlado, utilizando a mesma infraestrutura e configurações de rede.
+
+### Resultados dos Testes de Performance
+
+#### Versão gRPC/Protobuf
+
+| Execução | GetPeças (ms) | Calcular (ms) | Pagar (ms) |
+|----------|---------------|---------------|------------|
+| 1        | 11            | 3             | 3          |
+| 2        | 10            | 4             | 3          |
+| 3        | 21            | 6             | 5          |
+| 4        | 9             | 4             | 4          |
+| 5        | 11            | 3             | 3          |
+| 6        | 12            | 3             | 7          |
+| 7        | 9             | 5             | 3          |
+| 8        | 5             | 3             | 4          |
+| 9        | 10            | 4             | 7          |
+| 10       | 12            | 3             | 3          |
+| **Média** | **11,0**      | **3,8**       | **4,2**    |
+
+#### Versão REST/JSON
+
+| Execução | GetPeças (ms) | Calcular (ms) | Pagar (ms) |
+|----------|---------------|---------------|------------|
+| 1        | 5             | 4             | 77         |
+| 2        | 6             | 4             | 37         |
+| 3        | 5             | 5             | 34         |
+| 4        | 6             | 5             | 24         |
+| 5        | 4             | 5             | 19         |
+| 6        | 5             | 5             | 19         |
+| 7        | 4             | 5             | 18         |
+| 8        | 8             | 5             | 42         |
+| 9        | 4             | 6             | 22         |
+| 10       | 4             | 5             | 22         |
+| **Média** | **5,1**       | **4,9**       | **31,4**   |
+
+### Análise Comparativa
+
+| Operação | gRPC/Protobuf (ms) | REST/JSON (ms) | Diferença (%) | Vencedor |
+|----------|-------------------|----------------|---------------|----------|
+| GetPeças | 11,0              | 5,1            | +115,7%       | REST     |
+| Calcular | 3,8               | 4,9            | +28,9%        | gRPC     |
+| Pagar    | 4,2               | 31,4           | +647,6%       | gRPC     |
+
+### Conclusões do Comparativo de Performance
+
+Os resultados dos testes revelam um panorama interessante sobre o desempenho das duas tecnologias:
+
+**Vantagens do REST/JSON:**
+- **Operação GetPeças**: O REST/JSON demonstrou superioridade significativa nesta operação, sendo aproximadamente 2,15 vezes mais rápido que o gRPC. Esta diferença pode ser atribuída à simplicidade da operação e ao overhead inicial do gRPC para estabelecer conexões HTTP/2.
+
+**Vantagens do gRPC/Protobuf:**
+- **Operação Calcular**: O gRPC apresentou desempenho ligeiramente superior (22,4% mais rápido), demonstrando a eficiência da serialização binária do Protobuf para operações de processamento de dados.
+- **Operação Pagar**: Aqui o gRPC mostrou sua maior vantagem, sendo cerca de 7,5 vezes mais rápido que o REST/JSON. Esta diferença substancial sugere que o gRPC é particularmente eficiente em operações mais complexas que envolvem múltiplas etapas de processamento.
+
+**Considerações Técnicas:**
+
+1. **Sobrecarga Inicial**: O gRPC possui uma sobrecarga inicial maior devido ao estabelecimento de conexões HTTP/2 e à negociação de protocolos, o que explica o desempenho inferior em operações simples como GetPeças.
+
+2. **Eficiência em Operações Complexas**: Para operações mais elaboradas (como Pagar), o gRPC demonstra sua superioridade através da serialização binária eficiente e do reuso de conexões HTTP/2.
+
+3. **Consistência de Performance**: O gRPC apresentou maior consistência nos tempos de resposta, especialmente nas operações Calcular e Pagar, enquanto o REST/JSON mostrou maior variabilidade, particularmente na operação Pagar.
+
+**Recomendações:**
+
+- **Para operações simples e isoladas**: REST/JSON pode ser mais adequado devido à sua simplicidade e menor overhead inicial.
+- **Para sistemas com múltiplas operações complexas**: gRPC oferece vantagens significativas, especialmente quando há necessidade de comunicação frequente entre microsserviços.
+- **Para arquiteturas de microsserviços de alta performance**: gRPC é recomendado devido à sua eficiência em cenários de comunicação intensiva e operações complexas.
+
+O comparativo demonstra que a escolha entre gRPC e REST/JSON deve considerar o contexto específico da aplicação, com gRPC sendo mais vantajoso para sistemas que demandam alta performance em operações complexas e comunicação frequente entre serviços.
+
 ## Conclusão
 
 A atividade extraclasse proporcionou uma experiência prática e enriquecedora no desenvolvimento de sistemas distribuídos utilizando o protocolo gRPC com Protobuf, bem como a comparação com o modelo tradicional de comunicação REST/JSON. A implementação dos microsserviços A, B e P permitiu compreender os desafios e as vantagens de cada abordagem, destacando a eficiência e a performance do gRPC em cenários que exigem alta escalabilidade e baixa latência. Além do mais, a utilização do Minikube para orquestração local com Kubernetes também foi fundamental para entender os conceitos de conteinerização e gerenciamento de microsserviços em um ambiente controlado. 
