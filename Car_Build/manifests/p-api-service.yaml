@@ -1,0 +1,13 @@
+# p-api-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: p-api-service
+spec:
+  type: LoadBalancer # Usa LoadBalancer com minikube tunnel
+  selector:
+    app: p-api # Conecta este serviço ao Deployment acima
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
