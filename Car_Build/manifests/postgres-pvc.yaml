@@ -8,4 +8,4 @@ spec:
     - ReadWriteOnce # O volume pode ser montado como leitura/escrita por um único nó
   resources:
     requests:
-      storage: 1Gi # Pedindo 1 Gigabyte de espaço. Pode ajustar se precisar.
+      storage: 1Gi # Pedindo 1 Gigabyte de espaço.

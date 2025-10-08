@@ -4,7 +4,7 @@ kind: Service
 metadata:
   name: p-api-service
 spec:
-  type: NodePort # Expõe a API para fora do cluster
+  type: LoadBalancer # Usa LoadBalancer com minikube tunnel
   selector:
     app: p-api # Conecta este serviço ao Deployment acima
   ports:
