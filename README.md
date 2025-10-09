@@ -1173,38 +1173,60 @@ spec:
 minikube start
 minikube dashboard  # Opcional - monitoramento visual
 
-# 2. Build e Load das Imagens Docker
-docker-compose up --build  # Gera imagens locais
+# 2. Build das imagens Docker
+cd Car_Build
+docker build -f ./Microservices/serverA-microsservice/Dockerfile -t car_build-server-a:latest .
+docker build -f ./Microservices/serverB-microsservice/Dockerfile -t car_build-server-b:latest .
+docker build -f ./P-Api/Dockerfile -t car_build-p-api:latest ./P-Api
+
+# 3. Carregar imagens no minikube
+
+# Depois que já tiver as imagens, rode o comando para carregar as imagens no minikube, não precisa ta com o docker rodando, só precisava das imagens:
+
 minikube image load car_build-p-api:latest
-minikube image load car_build-server-a:latest  
+minikube image load car_build-server-a:latest
 minikube image load car_build-server-b:latest
 
-# 3. Deploy da Infraestrutura (ordem importante)
+# 4. Aplicar os manifests
+
+# Depois, entre na pasta /manifests e rode o comando para dar apply no Kubernetes:
+
 cd manifests
-kubectl apply -f postgres-pvc.yaml          # Storage primeiro
-kubectl apply -f postgres-configmap.yaml    # Configurações
-kubectl apply -f postgres-deployment.yaml   # Database
-kubectl apply -f postgres-service.yaml      # DNS interno
+kubectl apply -f .
 
-# 4. Deploy dos Microserviços
-kubectl apply -f server-a-deployment.yaml
-kubectl apply -f server-a-service.yaml
-kubectl apply -f server-b-deployment.yaml  
-kubectl apply -f server-b-service.yaml
+# 5. Verificar deployments
 
-# 5. Deploy do API Gateway
-kubectl apply -f p-api-deployment.yaml
-kubectl apply -f p-api-service.yaml
+# Deve demorar um pouco para subir o banco, mas confirma com os comandos:
 
-# 6. Verificação e Exposição
 kubectl get deployments
-kubectl get pods -w  # Aguardar todos ficarem Running
-minikube service p-api-service  # Criar túnel externo
+kubectl get pods
 
-# 7. Frontend
-cd ../WebClient
+# 6. Expor o serviço com Minikube Tunnel
+
+# Criar túnel (manter rodando em background):
+bash
+minikube tunnel
+
+# Verificar se funcionou:
+
+kubectl get service p-api-service
+
+# Deve mostrar algo como:
+# NAME            TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)    AGE
+# p-api-service   LoadBalancer   10.96.X.X      localhost     8000:XXX   1m
+
+
+# > *Resultado*: P-API sempre disponível em http://localhost:8000
+
+# 7. Iniciar o frontend
+
+# O frontend usa URL fixa configurada:
+
+cd WebClient
 npm start
+
 ```
+---
 
 #### **4.2 Dificuldades Encontradas**
 
