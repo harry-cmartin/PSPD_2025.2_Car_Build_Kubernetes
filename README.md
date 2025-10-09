@@ -415,253 +415,6 @@ Nesta aplicação, utilizamos o Minikube, uma ferramenta que cria e gerencia um 
 
 O diferencial do Minikube, é que ele é um cluster que o Minikube cria é um cluster de nó único (host unico), enquanto um cluster de produção geralmente é composto por múltiplos nós (computadores)
 
-### Componentes e Manifestos
-
-### **1. Camada de Dados (PostgreSQL)**
-
-#### `postgres-pvc.yaml` - Armazenamento Persistente
-```yaml
-kind: PersistentVolumeClaim
-```
-**Função**: Reserva 1GB de disco persistente no cluster
-- **Por que?**: Dados do PostgreSQL precisam sobreviver a reinicializações
-- **Comportamento**: Mesmo se o pod morrer, os dados permanecem salvos
-
-#### `postgres-configmap.yaml` - Script de Inicialização  
-```yaml
-kind: ConfigMap
-data:
-  init.sql: |
-    CREATE TABLE carros...
-    CREATE TABLE pecas...
-```
-**Função**: Armazena o script SQL que cria tabelas e popula dados
-- **Execução**: Roda automaticamente na primeira inicialização do PostgreSQL
-- **Conteúdo**: Tabelas `carros` e `pecas` + dados iniciais (Fusca, Civic, Corolla)
-
-#### `postgres-deployment.yaml` - Container do Banco
-```yaml
-kind: Deployment
-image: postgres:15-alpine
-```
-**Função**: Executa o PostgreSQL no cluster
-- **Volumes**: Conecta PVC criado (dados) + ConfigMap (script SQL)
-- **Ambiente**: Define as variáveis de ambiente do banco. Essas credenciais são utilizadas tanto pelo contêiner do banco quanto pelos serviços que irão se conectar a ele.
-- **Porta**: 5432 (exposta internamente no cluster para acesso pelas aplicações).
-
-#### `postgres-service.yaml` - Rede Interna do Banco
-```yaml
-kind: Service
-type: ClusterIP
-```
-**Função**: Cria um serviço interno para expor o PostgreSQL dentro do cluster.
-- **DNS interno**: Gera automaticamente o nome `postgres-service`, que pode ser usado por outros Pods para se conectar ao banco sem precisar do IP direto.
-- **Acesso**: Direciona o tráfego recebido na porta 5432 para os Pods do Deployment do PostgreSQL.
-- **Isolamento**: Por ser do tipo ClusterIP, o serviço só é acessível de dentro do cluster, garantindo que o banco não fique exposto externamente.
-
----
-
-### **2. Camada de Microserviços (Containers A & B)**
-
-#### `server-a-deployment.yaml` - Microserviço de Catálogo
-```yaml
-kind: Deployment
-image: car_build-server-a:latest
-env:
-  - name: DB_HOST
-    value: "postgres-service"
-```
-**Função**: Container A - Microserviço gRPC de catálogo
-- **Responsabilidade**: Buscar peças por modelo de carro
-- **Tecnologia**: Node.js + gRPC
-- **Banco**: Conecta no PostgreSQL via DNS interno
-- **Porta**: 50051 (gRPC)
-
-#### `server-a-service.yaml` - DNS do Catálogo
-```yaml
-kind: Service
-type: ClusterIP
-```
-**Função**: Cria DNS `server-a-service` para acesso interno
-
-#### `server-b-deployment.yaml` - Microserviço de Pricing
-```yaml
-kind: Deployment  
-image: car_build-server-b:latest
-```
-**Função**: Container B - Microserviço gRPC de cálculo de preços
-- **Responsabilidade**: Calcular preços totais dos orçamentos
-- **Tecnologia**: Node.js + gRPC  
-- **Porta**: 50052 (gRPC)
-
-#### `server-b-service.yaml` - DNS do Pricing
-```yaml
-kind: Service
-type: ClusterIP
-```
-**Função**: Cria DNS `server-b-service` para acesso interno
-
----
-
-### **3. Camada de API Gateway (Container P)**
-
-#### `p-api-deployment.yaml` - API Gateway
-```yaml
-kind: Deployment
-image: car_build-p-api:latest
-env:
-  - name: SERVER_A_HOST
-    value: "server-a-service"
-  - name: SERVER_B_HOST  
-    value: "server-b-service"
-```
-**Função**: Executa o API Gateway (Container P), que serve como ponte entre o frontend e os serviços internos.
-- **Rede Externa**: Recebe requisições HTTP do frontend
-- **Rede Interna**: Converte para gRPC e chama Server A/B
-- **Ambiente**: Define variáveis (`SERVER_A_HOST` e `SERVER_B_HOST`) que apontam para os serviços internos no cluster, garantindo que o Gateway saiba como se comunicar com eles via DNS do Kubernetes.
-- **Tecnologia**: Construído em FastAPI com clientes gRPC para orquestrar as chamadas.
-- **CORS**: Configurado para permitir que o frontend (mesmo rodando em localhost) consiga acessar a API sem bloqueios de navegador.
-
-#### `p-api-service.yaml` - Exposição Externa
-```yaml
-kind: Service
-type: NodePort
-```
-**Função**: **ÚNICA** Torna o API Gateway acessível de fora do cluster.
-- **Tipo**: NodePort abre uma porta no nó do cluster, permitindo que usuários externos (como o frontend) façam requisições HTTP.
-- **Comando**: `minikube service p-api-service` cria túnel
-- **Resultado**: O frontend pode se conectar ao cluster chamando o Gateway diretamente, sem precisar conhecer os serviços internos.
-
----
-
-### **Fluxo Completo de uma Requisição**
-
-### **1. Buscar Peças de um Carro:**
-
-```
-1. [Frontend React] 
-   POST http://127.0.0.1:57153/get-pecas
-   Body: {"modelo": "fusca", "ano": 2014}
-   ↓
-   
-2. [minikube tunnel] 
-   Encaminha para cluster Kubernetes
-   ↓
-   
-3. [p-api-service NodePort] 
-   DNS resolve para pod p-api-deployment
-   ↓
-   
-4. [Container P - FastAPI] 
-   - Recebe HTTP POST
-   - Converte para gRPC
-   - Chama server-a-service via DNS interno
-   ↓
-   
-5. [Container A - Server gRPC] 
-   - Recebe gRPC GetPecas()
-   - Conecta postgres-service via DNS
-   - Query SQL: SELECT * FROM pecas WHERE modelo_fk = 'fusca'
-   ↓
-   
-6. [PostgreSQL] 
-   - Busca dados no PVC persistente  
-   - Retorna: Chassi R$5000, Motor 1.6 R$3500, etc.
-   ↓
-   
-7. [Resposta volta pelo caminho inverso]
-   PostgreSQL → Server A → P-API → Tunnel → Frontend
-```
-
-### **2. Calcular Preço Total:**
-
-```
-1. [Frontend] Envia peças selecionadas para /calcular
-2. [Container P] Converte HTTP → gRPC 
-3. [Container B] Recebe lista de peças e quantidades
-4. [Container B] Calcula: (quantidade × valor) para cada peça
-5. [Resposta] Preço total retorna para frontend
-```
-
----
-
-### **Tipos de Services e Redes**
-
-| Service | Tipo | Acesso | Função |
-|---------|------|--------|---------|
-| `postgres-service` | ClusterIP | Apenas interno | DNS do banco |
-| `server-a-service` | ClusterIP | Apenas interno | DNS do catálogo |  
-| `server-b-service` | ClusterIP | Apenas interno | DNS do pricing |
-| `p-api-service` | **NodePort** | **Externo** | **Gateway público** |
-
-### **Redes Configuradas:**
-- **Rede Externa**: Frontend ↔ P-API (HTTP tradicional)
-- **Rede Interna**: P-API ↔ Server A/B (HTTP/2 gRPC)
-
----
-
-### **Comandos:**
-```bash
-# 1. Subir minikube
-minikube start
-
-# 2. Carregar imagens
-minikube image load car_build-p-api:latest
-minikube image load car_build-server-a:latest  
-minikube image load car_build-server-b:latest
-
-# 3. Deploy todos os manifests
-kubectl apply -f .
-
-# 4. Aguardar pods iniciarem
-kubectl get pods -w
-
-# 5. Expor P-API externalmente
-minikube service p-api-service
-
-# 6. Executar frontend
-npm start
-```
-
----
-
-### **Verificação e Monitoramento**
-
-### **Comandos Úteis:**
-```bash
-# Ver status dos pods
-kubectl get pods
-
-# Ver logs de um serviço
-kubectl logs -f deployment/p-api-deployment
-kubectl logs -f deployment/server-a-deployment
-
-# Testar conectividade interna
-kubectl exec -it deployment/postgres-deployment -- psql -U car_build_user -d car_build_db
-
-# Dashboard visual
-minikube dashboard
-```
-
-### **Conformidade com Especificação**
-
-Esta implementação atende perfeitamente aos requisitos:
-
-- **HServ**: Kubernetes cluster (minikube)
-- **HClient**: Browser com frontend React  
-- **Container P**: API Gateway (HTTP ↔ gRPC)
-- **Container A**: Microserviço catálogo gRPC
-- **Container B**: Microserviço pricing gRPC
-- **Rede Externa**: HTTP tradicional via NodePort
-- **Rede Interna**: HTTP/2 gRPC entre containers
-- **Persistência**: PostgreSQL com PVC
-
----
-
-### **Seção Completa sobre Kubernetes - Arquitetura e Funcionalidades**
-
-### **1. Processo de Desenvolvimento e Migração para Kubernetes**
-
 #### **1.1 Etapa Inicial - Containerização com Docker**
 
 O desenvolvimento iniciou com a criação de **Dockerfiles individuais** para cada microserviço:
@@ -851,11 +604,11 @@ env:
 #### `p-api-service.yaml` - Exposição Externa
 ```yaml
 kind: Service
-type: NodePort
+type: LoadBalancer
 ```
 **Função**: **ÚNICA** Torna o API Gateway acessível de fora do cluster.
-- **Tipo**: NodePort abre uma porta no nó do cluster, permitindo que usuários externos (como o frontend) façam requisições HTTP.
-- **Comando**: `minikube service p-api-service` cria túnel
+- **Tipo**: LoadBalancer abre uma tunel no nó do cluster, permitindo que usuários externos (como o frontend) façam requisições HTTP.
+- **Comando**: `minikube tunnel` cria túnel
 - **Resultado**: O frontend pode se conectar ao cluster chamando o Gateway diretamente, sem precisar conhecer os serviços internos.
 
 ---
@@ -874,28 +627,24 @@ type: NodePort
    Encaminha para cluster Kubernetes
    ↓
    
-3. [p-api-service NodePort] 
-   DNS resolve para pod p-api-deployment
-   ↓
-   
-4. [Container P - FastAPI] 
+3. [Container P - FastAPI] 
    - Recebe HTTP POST
    - Converte para gRPC
    - Chama server-a-service via DNS interno
    ↓
    
-5. [Container A - Server gRPC] 
+4. [Container A - Server gRPC] 
    - Recebe gRPC GetPecas()
    - Conecta postgres-service via DNS
    - Query SQL: SELECT * FROM pecas WHERE modelo_fk = 'fusca'
    ↓
    
-6. [PostgreSQL] 
+5. [PostgreSQL] 
    - Busca dados no PVC persistente  
    - Retorna: Chassi R$5000, Motor 1.6 R$3500, etc.
    ↓
    
-7. [Resposta volta pelo caminho inverso]
+6. [Resposta volta pelo caminho inverso]
    PostgreSQL → Server A → P-API → Tunnel → Frontend
 ```
 
@@ -918,7 +667,7 @@ type: NodePort
 | `postgres-service` | ClusterIP | Apenas interno | DNS do banco |
 | `server-a-service` | ClusterIP | Apenas interno | DNS do catálogo |  
 | `server-b-service` | ClusterIP | Apenas interno | DNS do pricing |
-| `p-api-service` | **NodePort** | **Externo** | **Gateway público** |
+| `p-api-service` | **LoadBalancer** | **Externo** | **Gateway público** |
 
 ### **Redes Configuradas:**
 - **Rede Externa**: Frontend ↔ P-API (HTTP tradicional)
@@ -926,63 +675,6 @@ type: NodePort
 
 ---
 
-### **Comandos:**
-```bash
-# 1. Subir minikube
-minikube start
-
-# 2. Carregar imagens
-minikube image load car_build-p-api:latest
-minikube image load car_build-server-a:latest  
-minikube image load car_build-server-b:latest
-
-# 3. Deploy todos os manifests
-kubectl apply -f .
-
-# 4. Aguardar pods iniciarem
-kubectl get pods -w
-
-# 5. Expor P-API externalmente
-minikube service p-api-service
-
-# 6. Executar frontend
-npm start
-```
-
----
-
-### **Verificação e Monitoramento**
-
-### **Comandos Úteis:**
-```bash
-# Ver status dos pods
-kubectl get pods
-
-# Ver logs de um serviço
-kubectl logs -f deployment/p-api-deployment
-kubectl logs -f deployment/server-a-deployment
-
-# Testar conectividade interna
-kubectl exec -it deployment/postgres-deployment -- psql -U car_build_user -d car_build_db
-
-# Dashboard visual
-minikube dashboard
-```
-
-### **Conformidade com Especificação**
-
-Esta implementação atende perfeitamente aos requisitos:
-
-- **HServ**: Kubernetes cluster (minikube)
-- **HClient**: Browser com frontend React  
-- **Container P**: API Gateway (HTTP ↔ gRPC)
-- **Container A**: Microserviço catálogo gRPC
-- **Container B**: Microserviço pricing gRPC
-- **Rede Externa**: HTTP tradicional via NodePort
-- **Rede Interna**: HTTP/2 gRPC entre containers
-- **Persistência**: PostgreSQL com PVC
-
----
 
 ### **Seção Completa sobre Kubernetes - Arquitetura e Funcionalidades**
 
@@ -1144,24 +836,6 @@ spec:
 - **Performance**: Comunicação direta entre pods
 - **Service Discovery**: DNS automático (`service-name.namespace.svc.cluster.local`)
 
-#### **3.2 Service Externo (NodePort)**
-
-```yaml
-# p-api-service.yaml
-kind: Service
-spec:
-  type: NodePort
-  ports:
-  - port: 8000
-    targetPort: 8000
-    nodePort: 30001
-```
-
-**Justificativa NodePort**:
-- **Acesso Externo**: Permite conexão do frontend React
-- **Desenvolvimento**: Ideal para ambiente local com minikube
-- **Túnel Minikube**: Integração com `minikube service` command
-
 ---
 
 ### **4. Comandos de Implementação e Dificuldades**
@@ -1236,24 +910,19 @@ npm start
 **Lição**: Minikube possui registry interno separado do Docker local
 
 ##### **B) Service Discovery e DNS**
-**Problema**: Microserviços não conseguiam se conectar usando hostnames do docker-compose
+**Problema**: Microserviços não conseguiam se conectar usando hostnames definidos nos dockerfiles
 **Solução**: Migração para DNS interno do Kubernetes (`service-name`)
-**Configuração**: Variáveis de ambiente apontando para services (`postgres-service`, `server-a-service`)
+**Configuração**: Variáveis de ambiente no gateway apontando para services (`postgres-service`, `server-a-service`)
 
-##### **C) Dependências de Inicialização**
-**Problema**: Pods tentavam conectar no PostgreSQL antes dele estar pronto
-**Solução**: Uso de `kubectl get pods -w` para aguardar status `Running`
-**Melhoria**: Implementação de health checks nos Deployments
-
-##### **D) Persistência de Dados**
+##### **C) Persistência de Dados**
 **Problema**: Dados PostgreSQL eram perdidos a cada restart do pod
 **Solução**: Implementação de PersistentVolumeClaim
 **Configuração**: Volume mounting correto nos Deployments
 
-##### **E) Exposição Externa**
+##### **D) Exposição Externa**
 **Problema**: Frontend não conseguia acessar API Gateway
-**Solução**: Service tipo NodePort + comando `minikube service`
-**Resultado**: Túnel automático entre localhost e cluster
+**Solução**: Service tipo LoadBalancing
+**Resultado**: Túnel e porta fixa entre localhost e cluster
 
 ---
 
@@ -1267,10 +936,10 @@ npm start
 - **5 Services** com DNS interno funcional
 - **Persistent Volume** para dados PostgreSQL
 - **ConfigMap** para scripts de inicialização
-- **Rede Externa** via NodePort funcional
+- **Rede Externa** via LoadBalancing funcional
 - **Comunicação gRPC** interna entre microserviços
 
-#### **5.2 Benefícios Obtidos vs Docker Compose**
+#### **5.2 Benefícios Obtidos**
 
 | Aspecto | Docker Compose | Kubernetes |
 |---------|---------------|------------|
@@ -1296,32 +965,9 @@ npm start
 - Status de health via `kubectl get pods`
 - Métricas de recursos via Kubernetes API
 
-#### **5.4 Validação da Arquitetura**
-
-**Testes de Integração Realizados**:
-```bash
-# 1. Conectividade Database
-kubectl exec -it deployment/postgres-deployment -- psql -U car_build_user -d car_build_db
-
-# 2. Comunicação gRPC Interna  
-kubectl logs -f deployment/p-api-deployment  # Verificar calls para server-a/b
-
-# 3. Acesso Externo
-curl http://$(minikube service p-api-service --url)/get-pecas
-```
-
-**Resultados dos Testes**:
-- PostgreSQL inicializado com dados
-- Server-A respondendo queries gRPC de catálogo
-- Server-B calculando preços via gRPC
-- P-API convertendo HTTP→gRPC corretamente
-- Frontend React consumindo APIs
-
 ---
 
-### **6. Conclusões e Lições Aprendidas**
-
-#### **6.1 Vantagens da Migração**
+#### **5.4 Vantagens da Migração**
 
 **Técnicas**:
 - **Isolamento**: Cada serviço em namespace próprio
@@ -1334,22 +980,27 @@ curl http://$(minikube service p-api-service --url)/get-pecas
 - **Versionamento**: Controle de versão de toda infraestrutura
 - **Debugging**: Ferramentas avançadas de troubleshooting
 
-#### **6.2 Recomendações para Produção**
-
-**Melhorias Necessárias**:
-- Migrar de **NodePort** para **Ingress Controller**
-- Implementar **Horizontal Pod Autoscaler** (HPA)
-- Adicionar **Resource Limits** e **Requests**
-- Configurar **Secrets** para credenciais sensíveis
-- Implementar **Network Policies** para segurança
-- Adicionar **Persistent Volume** com backup automático
-
-**Monitoramento Avançado**:
-- Integração com **Prometheus** e **Grafana**
-- Implementação de **Jaeger** para tracing distribuído
-- Configuração de **Alertmanager** para notificações
-
 Esta implementação demonstra uma migração bem-sucedida de Docker Compose para Kubernetes, evidenciando as vantagens de orquestração, escalabilidade e gerenciamento de uma arquitetura de microserviços em ambiente cloud-native.
+
+## **5.5Conformidade com Especificação**
+
+Esta implementação atende perfeitamente aos requisitos definidos inicialmente:
+
+- **HServ**: Kubernetes cluster (minikube)
+- **HClient**: Browser com frontend React
+- **Container P**: API Gateway (HTTP ↔ gRPC)
+- **Container A**: Microserviço catálogo gRPC
+- **Container B**: Microserviço pricing gRPC
+- **Rede Externa**: HTTP tradicional via LoadBalancer
+- **Rede Interna**: HTTP/2 gRPC entre containers
+- **Persistência**: PostgreSQL com PVC
+
+## **Resultado Esperado**
+
+- **Backend**: Disponível via túnel do minikube
+- **Frontend**: http://localhost:3000
+- **Dashboard**: `minikube dashboard` para monitoramento
+
 
 ## Conclusão
 
@@ -1366,150 +1017,3 @@ Nesse sentido, a atividade contribuiu significativamente para o desenvolvimento 
 | GUILHERME SILVA DUTRA             | Considero esta atividade de grande valia para o meu desenvolvimento profissional. Ela proporcionou o exercício de conhecimentos avançados em microsserviços e em tecnologias valorizadas pelo mercado. Na minha avaliação, essa prática é fundamental, uma vez que a graduação em Engenharia de Software prioriza os fundamentos, um conhecimento indispensável, porém, por vezes, distante das aplicações imediatas no ambiente de trabalho. Dessa forma, a execução de tarefas como esta contribui significativamente para nossa familiarização com as tecnologias demandadas pela indústria. Assim, o trabalho se mostrou, portanto, muito relevante, permitindo-me aplicar conceitos alinhados à realidade profissional e aprofundar-me no gRPC, tecnologia à qual dediquei especial atenção  | 7/10 |
 | GUSTAVO FRANCA BOA SORTE          | Esta atividade foi fundamental para meu desenvolvimento técnico, especialmente na implementação prática de sistemas distribuídos. A criação em determinadas funções me permitiu compreender os desafios reais da comunicação entre microsserviços via gRPC e Protocol Buffers. O trabalho com diferentes linguagen integradas através de gRPC demonstrou as vantagens desta tecnologia sobre REST tradicional. A experiência com dockerização e debugging distribuído me permitiu desenvolver habilidades essenciais para o mercado atual. Considero que contribuí de forma integral, implementando as funcionalidades designadas e auxiliando na validação da infraestrutura para Kubernetes. | 8/10  |
 | HARRYSON CAMPOS MARTINS           | Este execício foi essencial para o meu aprimoramento técnico, especialmente no que diz respeito à aplicação prática de conceitos de sistemas distribuídos. Ao participar do desenvolvimento de determinadas funcionalidades, pude compreender as tecnologias  gRPC e Protocol Buffers, além de microsserviços .Além disso me proporcionou entender as diferenças entre o REST tradiocional e o grpc. Também tive uma participação ativa na implementação das funcionalidades atribuídas e no suporte à validação da infraestrutura voltada ao Kubernetes, o que me proporcionou uma visão mais ampla sobre orquestração e escalabilidade de serviços. De modo geral, considero que contribui de forma integral e essa prática representou um avanço marcante tanto no meu domínio técnico quanto na minha capacidade de colaboração em projetos complexos. | 9/10 |
-
-
-## Como Executar a Aplicação
-
-### Pré-requisitos
-
-- **Docker**: Para containerização dos microserviços
-  - Guia de instalação: https://www.docker.com/get-started/
-- **Docker Compose**: Para build e orquestração local das imagens
-  - Guia de instalação: https://docs.docker.com/compose/install/
-- **Node.js (v16+)** e **npm**: Para execução do frontend React
-  - Guia de instalação: https://nodejs.org/en/download/
-- **Kubernetes**: Ferramenta de orquestração de containers
-  - Guia de instalação: https://kubernetes.io/docs/tasks/tools/
-- **Minikube**: Ambiente Kubernetes local
-  - Guia de instalação: https://minikube.sigs.k8s.io/docs/start/
-- **kubectl**: CLI para interação com Kubernetes (geralmente vem com o Kubernetes)
-  - Guia de instalação: https://kubernetes.io/docs/tasks/tools/install-kubectl/
-
-
-### Executando o Back-End com o Kubernetes
-<!-- 1. Subir minikube
-
-```bash
-minikube start
-```
-
-2. Dashboard **(opcional)**
-
-Para acompanhar os serviços rodando, use o comando:
-```bash
-minikube dashboard
-```
-OBS: Ele irá abrir uma aba no navegador, mas se não abrir, copie o link que aparece no terminal e cole no navegador. Além disso, abra um novo terminal para continuar os próximos passos.
-
-3. Entre na pasta raiz do projeto:
-```bash
-cd Car_Build
-``` 
-
-<!-- 3. Build das imagens Docker
-Para facilitar, rode o docker-compose, que já irá gerar as imagens necessárias pro Kubernetes:
-```bash
-docker build -t car_build-p-api ./P-API
-docker build -t car_build-server-a ./Microservices/serverA-microsservice
-docker build -t car_build-server-b ./Microservices/serverB-microsservice
-``` 
-
-4. Build das imagens Docker**
-Para facilitar, rode o docker-compose, que já irá gerar as imagens necessárias pro Kubernetes:
-```bash
-docker-compose up -d --build
-```
-
-5. Carregar imagens
-```bash
-minikube image load car_build-p-api:latest
-minikube image load car_build-server-a:latest  
-minikube image load car_build-server-b:latest
-```
-
-6. Depois, entre na pasta `/manifests` e rode o comando para dar apply no Kubernetes:
-```bash
-cd manifests
-kubectl apply -f .
-```
-
-7. Verificar deployments
-
-Deve demorar um pouco para subir o banco, mas confirma com os comandos:
-```bash
-kubectl get deployments
-kubectl get pods
-```
-
-8. Expor o serviço
-
-Por fim, para rodar de fato o minikube, rode:
-```bash
-minikube service p-api-service
-```
- -->
-
-```bash
-# 1. Preparação do Ambiente
-minikube start
-minikube dashboard  # Opcional - monitoramento visual
-
-# 2. Build e Load das Imagens Docker
-docker-compose up --build  # Gera imagens locais
-minikube image load car_build-p-api:latest
-minikube image load car_build-server-a:latest  
-minikube image load car_build-server-b:latest
-
-# 3. Deploy da Infraestrutura (ordem importante)
-cd manifests
-kubectl apply -f postgres-pvc.yaml          # Storage primeiro
-kubectl apply -f postgres-configmap.yaml    # Configurações
-kubectl apply -f postgres-deployment.yaml   # Database
-kubectl apply -f postgres-service.yaml      # DNS interno
-
-# 4. Deploy dos Microserviços
-kubectl apply -f server-a-deployment.yaml
-kubectl apply -f server-a-service.yaml
-kubectl apply -f server-b-deployment.yaml  
-kubectl apply -f server-b-service.yaml
-
-# 5. Deploy do API Gateway
-kubectl apply -f p-api-deployment.yaml
-kubectl apply -f p-api-service.yaml
-
-# 6. Verificação e Exposição
-kubectl get deployments
-kubectl get pods -w  # Aguardar todos ficarem Running
-minikube service p-api-service  # Criar túnel externo
-
-OBS: Vai abrir uma aba no navegador basta apenas fechar que tudo estará rodando normalmente.
-```
-
-
-### Execução do Front-End
-
-```bash
-# 1. Primeiro acesse a pasta raiz do projeto:
-cd Car_Build
-
-# 2. Depois acesse a pasta do front-end:
-cd WebClient
-
-# 3. Instale as dependências e inicie o servidor:
-npm install
-npm start 
-
-# Pronto, o projeto estará rodando em http://localhost:3000/
-```
-
-### Para parar a aplicação
-
-```bash
-# 1. Para parar o minikube, rode:
-minikube stop
-
-# 2. Para parar o docker-compose, rode:
-docker-compose down
-
-# 3. Para parar o front-end, basta fechar o terminal onde está rodando o `npm start` ou usar `CTRL + C`.
-```
